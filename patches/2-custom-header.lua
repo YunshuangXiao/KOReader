@@ -18,7 +18,6 @@
 -- along with this program. If not, see <https://www.gnu.org/licenses/>.
 -- ###########################################################################
 
-
 local Blitbuffer = require("ffi/blitbuffer")
 local TextWidget = require("ui/widget/textwidget")
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -42,7 +41,6 @@ local T = require("ffi/util").template
 local ReaderView = require("apps/reader/modules/readerview")
 local ReaderMenu = require("apps/reader/modules/readermenu")
 
-
 -- ###########################################################################
 --                         CUSTOM TRANSLATIONS
 -- ###########################################################################
@@ -50,7 +48,8 @@ local ReaderMenu = require("apps/reader/modules/readermenu")
 local CUSTOM_TRANSLATIONS = {
 
     zh = {
-        ["Dynamic filler"] = "自适应填充",
+        ["Dynamic filler 1"] = "自适应填充 1",
+        ["Dynamic filler 2"] = "自适应填充 2",
         ["Double space"] = "双空格",
         ["Show custom header"] = "显示自定义顶部状态栏",
         ["Custom header"] = "自定义顶部状态栏",
@@ -58,12 +57,16 @@ local CUSTOM_TRANSLATIONS = {
         ["Arrange items"] = "状态栏项目排序",
         ["Arrange header items"] = "顶部状态栏项目排序",
         ["Separator style"] = "分隔符样式",
+        ["Separator: %1"] = "分隔符：%1",
+        ["Custom separator"] = "自定义分隔符",
+        ["Custom: %1"] = "自定义：%1",
         ["Header font size"] = "顶部状态栏字体大小",
         ["Bold text"] = "文本加粗",
     },
 
     zh_CN = {
-        ["Dynamic filler"] = "自适应填充",
+        ["Dynamic filler 1"] = "自适应填充 1",
+        ["Dynamic filler 2"] = "自适应填充 2",
         ["Double space"] = "双空格",
         ["Show custom header"] = "显示自定义顶部状态栏",
         ["Custom header"] = "自定义顶部状态栏",
@@ -71,11 +74,13 @@ local CUSTOM_TRANSLATIONS = {
         ["Arrange items"] = "状态栏项目排序",
         ["Arrange header items"] = "顶部状态栏项目排序",
         ["Separator style"] = "分隔符样式",
+        ["Separator: %1"] = "分隔符：%1",
+        ["Custom separator"] = "自定义分隔符",
+        ["Custom: %1"] = "自定义：%1",
         ["Header font size"] = "顶部状态栏字体大小",
         ["Bold text"] = "文本加粗",
     },
 }
-
 
 -- ###########################################################################
 --                              TRANSLATOR
@@ -116,7 +121,6 @@ local function getCurrentLanguage()
     return lang
 end
 
-
 local function getCustomTranslation(msgid)
     local lang = getCurrentLanguage()
 
@@ -148,7 +152,6 @@ local function getCustomTranslation(msgid)
 
     return nil
 end
-
 
 local function tr(msgid, ...)
     local result
@@ -182,7 +185,6 @@ local function tr(msgid, ...)
     return result
 end
 
-
 local function getItemName(item)
     if not item or not item.msgid then
         return ""
@@ -194,7 +196,6 @@ local function getItemName(item)
 
     return tr(item.msgid)
 end
-
 
 -- ###########################################################################
 --                         CUSTOM HEADER ITEMS
@@ -303,13 +304,18 @@ local HEADER_ITEMS = {
         is_spacer = false,
     },
 
-    spacer = {
-        msgid = "Dynamic filler",
+    spacer_1 = {
+        msgid = "Dynamic filler 1",
+        generator = nil,
+        is_spacer = true,
+    },
+
+    spacer_2 = {
+        msgid = "Dynamic filler 2",
         generator = nil,
         is_spacer = true,
     },
 }
-
 
 -- ###########################################################################
 --                              MENU ORDER
@@ -331,9 +337,9 @@ local ITEMS_ORDER = {
     "frontlight_warmth",
     "mem_usage",
     "bookmark_count",
-    "spacer",
+    "spacer_1",
+    "spacer_2",
 }
-
 
 -- ###########################################################################
 --                           SEPARATOR STYLES
@@ -341,11 +347,11 @@ local ITEMS_ORDER = {
 
 local SEPARATOR_STYLES = {
     "  ",
+    " | ",
     " • ",
     " - ",
     " ○ ",
 }
-
 
 -- ###########################################################################
 --                       CUSTOM HEADER SETTINGS
@@ -355,19 +361,25 @@ local header_defaults = {
     enabled = true,
 
     items = {
-        "time",
-        "battery",
-        "spacer",
         "percentage",
+        "spacer_1",
+        "time",
+        "spacer_2",
+        "battery",
     },
 
+    -- Built-in separator style.
     separator_style = 1,
+
+    -- Custom separator.
+    custom_separator = "",
+
+    -- Effective separator used by buildHeaderWidgets().
     item_separator = "  ",
 
     text_font_size = 16,
     text_font_bold = false,
 }
-
 
 local function getHeaderSettings()
     local settings = G_reader_settings:readSetting("custom_header")
@@ -393,7 +405,16 @@ local function getHeaderSettings()
         settings.separator_style = 1
     end
 
-    settings.item_separator = SEPARATOR_STYLES[settings.separator_style]
+    if settings.custom_separator == nil then
+        settings.custom_separator = ""
+    end
+
+    -- separator_style == 0 means custom separator.
+    if settings.separator_style == 0 then
+        settings.item_separator = settings.custom_separator
+    else
+        settings.item_separator = SEPARATOR_STYLES[settings.separator_style]
+    end
 
     if settings.text_font_size == nil then
         settings.text_font_size = 16
@@ -406,16 +427,13 @@ local function getHeaderSettings()
     return settings
 end
 
-
 local function saveHeaderSettings(settings)
     G_reader_settings:saveSetting("custom_header", settings)
 end
 
-
 local function isHeaderEnabled()
     return getHeaderSettings().enabled
 end
-
 
 local function hasItem(items_list, item_key)
     for _, key in ipairs(items_list) do
@@ -426,7 +444,6 @@ local function hasItem(items_list, item_key)
 
     return false
 end
-
 
 local function toggleItem(items_list, item_key)
     for i, key in ipairs(items_list) do
@@ -439,16 +456,19 @@ local function toggleItem(items_list, item_key)
     table.insert(items_list, item_key)
 end
 
-
 local function setSeparatorStyle(style_index)
     local settings = getHeaderSettings()
 
     settings.separator_style = style_index
-    settings.item_separator = SEPARATOR_STYLES[style_index]
+
+    if style_index == 0 then
+        settings.item_separator = settings.custom_separator or ""
+    else
+        settings.item_separator = SEPARATOR_STYLES[style_index]
+    end
 
     saveHeaderSettings(settings)
 end
-
 
 -- ###########################################################################
 --                              GENERATORS
@@ -460,7 +480,6 @@ HEADER_ITEMS.time.generator = function(self)
         G_reader_settings:isTrue("twelve_hour_clock")
     ) or ""
 end
-
 
 HEADER_ITEMS.battery.generator = function(self)
     if not Device:hasBattery() then
@@ -480,7 +499,6 @@ HEADER_ITEMS.battery.generator = function(self)
     return batt_prefix .. batt_lvl .. "%"
 end
 
-
 HEADER_ITEMS.wifi.generator = function(self)
     if NetworkMgr:isWifiOn() then
         return ""
@@ -488,7 +506,6 @@ HEADER_ITEMS.wifi.generator = function(self)
 
     return ""
 end
-
 
 HEADER_ITEMS.percentage.generator = function(self)
     local pageno = self.state.page or 1
@@ -503,14 +520,12 @@ HEADER_ITEMS.percentage.generator = function(self)
     return string.format("%.0f", percentage) .. "%"
 end
 
-
 HEADER_ITEMS.page_progress.generator = function(self)
     local pageno = self.state.page or 1
     local pages = self.ui.doc_settings.data.doc_pages or 1
 
     return ("%d / %d"):format(pageno, pages)
 end
-
 
 HEADER_ITEMS.pages_left_book.generator = function(self)
     local pageno = self.state.page or 1
@@ -519,7 +534,6 @@ HEADER_ITEMS.pages_left_book.generator = function(self)
 
     return ("→ %d / %d"):format(remaining, pages)
 end
-
 
 HEADER_ITEMS.pages_left.generator = function(self)
     local pageno = self.state.page or 1
@@ -531,7 +545,6 @@ HEADER_ITEMS.pages_left.generator = function(self)
 
     return ""
 end
-
 
 HEADER_ITEMS.chapter_progress.generator = function(self)
     local pageno = self.state.page or 1
@@ -552,7 +565,6 @@ HEADER_ITEMS.chapter_progress.generator = function(self)
     return ""
 end
 
-
 HEADER_ITEMS.title.generator = function(self)
     if self.ui.doc_props then
         return self.ui.doc_props.display_title or ""
@@ -560,7 +572,6 @@ HEADER_ITEMS.title.generator = function(self)
 
     return ""
 end
-
 
 HEADER_ITEMS.author.generator = function(self)
     if not self.ui.doc_props then
@@ -576,7 +587,6 @@ HEADER_ITEMS.author.generator = function(self)
     return author
 end
 
-
 HEADER_ITEMS.chapter.generator = function(self)
     local pageno = self.state.page or 1
 
@@ -586,7 +596,6 @@ HEADER_ITEMS.chapter.generator = function(self)
 
     return ""
 end
-
 
 HEADER_ITEMS.frontlight.generator = function(self)
     if not Device:hasFrontlight() then
@@ -608,7 +617,6 @@ HEADER_ITEMS.frontlight.generator = function(self)
     return "☼" .. tr("Off")
 end
 
-
 HEADER_ITEMS.frontlight_warmth.generator = function(self)
     if not Device:hasNaturalLight() then
         return ""
@@ -629,7 +637,6 @@ HEADER_ITEMS.frontlight_warmth.generator = function(self)
     return ""
 end
 
-
 HEADER_ITEMS.mem_usage.generator = function(self)
     local statm = io.open("/proc/self/statm", "r")
 
@@ -649,7 +656,6 @@ HEADER_ITEMS.mem_usage.generator = function(self)
     return "" .. ("%d MiB"):format(rss)
 end
 
-
 HEADER_ITEMS.bookmark_count.generator = function(self)
     if not self.ui.annotation then
         return ""
@@ -659,7 +665,6 @@ HEADER_ITEMS.bookmark_count.generator = function(self)
 
     return "\u{F097}" .. ("%d"):format(count)
 end
-
 
 -- ###########################################################################
 --                         BUILD HEADER CONTENT
@@ -707,7 +712,6 @@ local function buildHeaderWidgets(self, settings)
     return text_groups
 end
 
-
 -- ###########################################################################
 --                         CUSTOM HEADER TOUCH ZONE
 -- ###########################################################################
@@ -751,13 +755,11 @@ local function setupHeaderTouchZone(reader_ui)
     })
 end
 
-
 -- ###########################################################################
 --                         CUSTOM HEADER PAINT
 -- ###########################################################################
 
 local _ReaderView_paintTo_orig = ReaderView.paintTo
-
 
 ReaderView.paintTo = function(self, bb, x, y)
     -- ---------------------------------------------------------------
@@ -780,7 +782,6 @@ ReaderView.paintTo = function(self, bb, x, y)
 
     local settings = getHeaderSettings()
 
-
     -- ===============================================================
     -- Appearance
     -- ===============================================================
@@ -793,7 +794,6 @@ ReaderView.paintTo = function(self, bb, x, y)
     local header_use_book_margins = true
     local header_margin = Size.padding.large
 
-
     -- ===============================================================
     -- Generate content
     -- ===============================================================
@@ -803,7 +803,6 @@ ReaderView.paintTo = function(self, bb, x, y)
     if #text_groups == 0 then
         return
     end
-
 
     -- ===============================================================
     -- Calculate available width
@@ -823,7 +822,6 @@ ReaderView.paintTo = function(self, bb, x, y)
     end
 
     local avail_width = math.max(1, screen_width - left_margin - right_margin)
-
 
     -- ===============================================================
     -- Fit text
@@ -852,7 +850,6 @@ ReaderView.paintTo = function(self, bb, x, y)
 
         return BD.auto(fitted_text)
     end
-
 
     -- ===============================================================
     -- Create text widgets
@@ -885,28 +882,106 @@ ReaderView.paintTo = function(self, bb, x, y)
         end
     end
 
-
     -- ===============================================================
     -- Dynamic filler
+    --
+    -- Behaviour depends on how many spacer items are active. Only
+    -- spacer_1 and spacer_2 exist as selectable items, so
+    -- spacer_count can only ever be 0, 1 or 2:
+    --
+    --   0 spacers -> LEFT ALIGNED.
+    --                Handled below in the "No dynamic filler" branch.
+    --
+    --   1 spacer  -> JUSTIFIED.
+    --                The single spacer absorbs *all* the remaining
+    --                width, pushing the group before it flush to the
+    --                left edge and the group after it flush to the
+    --                right edge.
+    --
+    --   2 spacers -> MIDDLE GROUP CENTERED.
+    --                The group BETWEEN the two spacers is centered
+    --                in the available width; the two spacers are
+    --                sized independently -- NOT split evenly -- so
+    --                that the middle group's own center lands on
+    --                avail_width / 2, regardless of how wide the
+    --                left/right groups are. (Splitting the leftover
+    --                space evenly between the two spacers only
+    --                centers the middle group when the left and
+    --                right groups happen to be the same width.)
     -- ===============================================================
 
-    local spacer_width = 0
-
-    if spacer_count > 0 then
-        spacer_width = math.max(0, (avail_width - total_text_width) / spacer_count)
-    end
-
-
-    local horizontal_items = {}
+    -- Segment widths: the pixel widths of the runs of text that sit
+    -- between spacers (and before/after them).
+    --   segment_widths[1] = width of the group before the 1st spacer
+    --   segment_widths[2] = width of the group between the two
+    --                       spacers (or after the spacer, if only 1)
+    --   segment_widths[#] = width of the group after the last spacer
+    local segment_widths = {}
+    local current_segment_width = 0
 
     for _, widget in ipairs(header_widgets) do
         if widget == "spacer" then
-            table.insert(horizontal_items, HorizontalSpan:new{ width = spacer_width })
+            table.insert(segment_widths, current_segment_width)
+            current_segment_width = 0
+        else
+            current_segment_width = current_segment_width + widget:getSize().w
+        end
+    end
+
+    table.insert(segment_widths, current_segment_width)
+
+    local spacer_widths = {}
+
+    if spacer_count == 2 then
+        local before_w = segment_widths[1]
+        local middle_w = segment_widths[2]
+        local after_w = segment_widths[3]
+
+        -- Where the middle group would need to start so that its
+        -- own center lands on the center of the available width.
+        local middle_start = (avail_width - middle_w) / 2
+
+        local spacer1 = middle_start - before_w
+        local spacer2 = avail_width - after_w - (middle_start + middle_w)
+
+        if spacer1 < 0 or spacer2 < 0 then
+            -- Not enough room to truly center the middle group (the
+            -- left and/or right groups are too wide to allow it
+            -- without overlap). Fall back to splitting the leftover
+            -- space evenly so nothing overlaps or goes negative.
+            local remaining_width = math.max(0, avail_width - total_text_width)
+
+            spacer1 = math.floor(remaining_width / 2)
+            spacer2 = remaining_width - spacer1
+        else
+            spacer1 = math.floor(spacer1)
+
+            -- Hand the remainder to spacer2 so the row still adds
+            -- up to exactly avail_width (avoids stray 1px gaps from
+            -- independent float truncation).
+            spacer2 = avail_width - before_w - middle_w - after_w - spacer1
+        end
+
+        spacer_widths = { spacer1, spacer2 }
+    elseif spacer_count == 1 then
+        -- The single spacer absorbs all the remaining width, which
+        -- pushes the group before it flush left and the group after
+        -- it flush right (i.e. the row is justified).
+        spacer_widths = { math.max(0, avail_width - total_text_width) }
+    end
+
+    local horizontal_items = {}
+    local spacer_index = 0
+
+    for _, widget in ipairs(header_widgets) do
+        if widget == "spacer" then
+            spacer_index = spacer_index + 1
+
+            table.insert(horizontal_items, HorizontalSpan:new{ width = spacer_widths[spacer_index] or 0 })
         else
             table.insert(horizontal_items, widget)
         end
     end
-
 
     -- No dynamic filler:
     -- content remains left aligned.
@@ -917,7 +992,6 @@ ReaderView.paintTo = function(self, bb, x, y)
             table.insert(horizontal_items, HorizontalSpan:new{ width = remaining_space })
         end
     end
-
 
     -- ===============================================================
     -- Calculate height
@@ -934,7 +1008,6 @@ ReaderView.paintTo = function(self, bb, x, y)
     if max_height <= 0 then
         return
     end
-
 
     -- ===============================================================
     -- Header container
@@ -955,7 +1028,6 @@ ReaderView.paintTo = function(self, bb, x, y)
     header:paintTo(bb, x, y)
 end
 
-
 -- ###########################################################################
 --                              READER UI
 -- ###########################################################################
@@ -963,12 +1035,10 @@ end
 local ReaderUI = require("apps/reader/readerui")
 local orig_ReaderUI_init = ReaderUI.init
 
-
 function ReaderUI:init(...)
     orig_ReaderUI_init(self, ...)
     setupHeaderTouchZone(self)
 end
-
 
 -- ###########################################################################
 --                         CUSTOM HEADER MENU
@@ -976,11 +1046,9 @@ end
 
 local orig_ReaderMenu_setUpdateItemTable = ReaderMenu.setUpdateItemTable
 
-
 function ReaderMenu:setUpdateItemTable()
     local menu_order = require("ui/elements/reader_menu_order")
     local SortWidget = require("ui/widget/sortwidget")
-
 
     -- ===============================================================
     -- Item selector
@@ -1027,7 +1095,6 @@ function ReaderMenu:setUpdateItemTable()
             end)(),
         }
     end
-
 
     -- ===============================================================
     -- Reorder
@@ -1081,17 +1148,31 @@ function ReaderMenu:setUpdateItemTable()
         }
     end
 
-
     -- ===============================================================
     -- Separator style
     -- ===============================================================
 
     local function createSeparatorStyleSelector()
         return {
-            text = tr("Separator style"),
+            text_func = function()
+                local settings = getHeaderSettings()
+
+                if settings.separator_style == 0 then
+                    return tr("Separator: %1", settings.custom_separator)
+                end
+
+                return tr(
+                    "Separator: %1",
+                    SEPARATOR_STYLES[settings.separator_style]
+                )
+            end,
 
             sub_item_table = (function()
                 local items = {}
+
+                -- -------------------------------------------------------
+                -- Built-in separator styles
+                -- -------------------------------------------------------
 
                 for i, style in ipairs(SEPARATOR_STYLES) do
                     local style_name = style
@@ -1119,11 +1200,80 @@ function ReaderMenu:setUpdateItemTable()
                     })
                 end
 
+                -- -------------------------------------------------------
+                -- Custom separator
+                -- -------------------------------------------------------
+
+                table.insert(items, {
+                    text_func = function()
+                        local settings = getHeaderSettings()
+
+                        if settings.custom_separator
+                            and settings.custom_separator ~= "" then
+                            return tr(
+                                "Custom: %1",
+                                settings.custom_separator
+                            )
+                        end
+
+                        return tr("Custom separator")
+                    end,
+
+                    checked_func = function()
+                        local settings = getHeaderSettings()
+                        return settings.separator_style == 0
+                    end,
+
+                    callback = function()
+                        local InputDialog = require("ui/widget/inputdialog")
+                        local settings = getHeaderSettings()
+
+                        local dialog
+
+                        dialog = InputDialog:new{
+                            title = tr("Custom separator"),
+                            input = settings.custom_separator or "",
+                            buttons = {
+                                {
+                                    {
+                                        text = tr("Cancel"),
+                                        callback = function()
+                                            UIManager:close(dialog)
+                                        end,
+                                    },
+                                    {
+                                        text = tr("OK"),
+                                        callback = function()
+                                            local value = dialog:getInputText()
+
+                                            settings.custom_separator = value
+                                            settings.separator_style = 0
+                                            settings.item_separator = value
+
+                                            saveHeaderSettings(settings)
+
+                                            UIManager:close(dialog)
+
+                                            if self.ui and self.ui.document then
+                                                UIManager:setDirty(
+                                                    self.ui.dialog,
+                                                    "ui"
+                                                )
+                                            end
+                                        end,
+                                    },
+                                },
+                            },
+                        }
+
+                        UIManager:show(dialog)
+                    end,
+                })
+
                 return items
             end)(),
         }
     end
-
 
     -- ===============================================================
     -- Font size
@@ -1162,7 +1312,6 @@ function ReaderMenu:setUpdateItemTable()
         }
     end
 
-
     -- ===============================================================
     -- Bold
     -- ===============================================================
@@ -1190,7 +1339,6 @@ function ReaderMenu:setUpdateItemTable()
         }
     end
 
-
     -- ===============================================================
     -- Add Custom Header to native ReaderMenu
     --
@@ -1208,7 +1356,6 @@ function ReaderMenu:setUpdateItemTable()
     table.insert(menu_order.setting, "----------------------------")
     table.insert(menu_order.setting, "custom_header_toggle")
     table.insert(menu_order.setting, "custom_header_settings")
-
 
     -- ===============================================================
     -- Custom Header switch
@@ -1231,7 +1378,6 @@ function ReaderMenu:setUpdateItemTable()
         end,
     }
 
-
     -- ===============================================================
     -- Custom Header settings
     -- ===============================================================
@@ -1247,7 +1393,6 @@ function ReaderMenu:setUpdateItemTable()
             createFontBoldMenu(),
         },
     }
-
 
     -- ===============================================================
     -- Continue with KOReader's native ReaderMenu.
@@ -1266,7 +1411,6 @@ function ReaderMenu:setUpdateItemTable()
 
     orig_ReaderMenu_setUpdateItemTable(self)
 end
-
 
 -- ###########################################################################
 --                              END OF PATCH
