@@ -34,6 +34,9 @@
     入口:  文件浏览器 → 顶部菜单 → 工具(More tools) → "Simple Launcher"
            或在 手势 / Profiles 里绑定动作 "Show launcher"。
 
+    1.1.1 变化
+      * 更新地址写在代码里 (UPDATE_URL), 菜单中不再提供输入框
+
     1.1.0 变化
       * 项目更名为 Simple Launcher (文件名 2-simple-launcher.lua; 旧配置自动迁移)
 
@@ -173,8 +176,11 @@ local L = { modules = {}, module_ids = {}, instance = nil, dispatching = false }
 package.loaded["simple_launcher"] = L
 package.loaded["launcher_homescreen"] = L -- 旧名称别名, 兼容已有的自定义模块
 
-local VERSION = "1.1.0" -- LAUNCHER_VERSION: 1.1.0   (在线更新用它比较新旧; 发布新版时两处版本号保持一致, 格式 x.x.x)
+local VERSION = "1.1.1" -- LAUNCHER_VERSION: 1.1.1   (在线更新用它比较新旧; 发布新版时两处版本号保持一致, 格式 x.x.x)
 L.VERSION = VERSION
+
+-- 更新地址: 写死在代码里, 用户界面不提供修改 (如需更换仓库, 直接改这一行)
+local UPDATE_URL = "https://raw.githubusercontent.com/YunshuangXiao/KOReader/refs/heads/main/patches/2-simple-launcher.lua"
 
 local function scale(n)
     return Screen:scaleBySize(n)
@@ -274,7 +280,6 @@ local function defaultConfig()
     return {
         enabled = true,
         auto_show = true,          -- 作为文件浏览器的初始界面: 启动 / 退出阅读后直接进入启动器
-        update_url = "https://raw.githubusercontent.com/YunshuangXiao/KOReader/refs/heads/main/patches/2-simple-launcher.lua",           -- GitHub 上本文件的链接 (blob 或 raw 均可)
         home_to_launcher = true,   -- 在文件浏览器点 Home 时进入启动器
         wallpaper = "",            -- 文件 或 文件夹(随机)
         wallpaper_mode = "cover",  -- cover | fit | stretch
@@ -1893,9 +1898,9 @@ end
 
 --- manual: 手动检查 (会提示 "已是最新" 与错误); force: 版本相同也重新下载
 function L:checkUpdate(manual, force)
-    local url = rawUrl(self.cfg.update_url)
+    local url = rawUrl(UPDATE_URL)
     if not url then
-        if manual then UIManager:show(InfoMessage:new{ text = "请先设置更新地址。", timeout = 3 }) end
+        if manual then UIManager:show(InfoMessage:new{ text = "更新地址无效。", timeout = 3 }) end
         return
     end
     local function run()
@@ -1934,25 +1939,10 @@ function L:checkUpdate(manual, force)
 end
 
 function L:updateMenu()
-    local cfg = self.cfg
     return {
         {
             text = string.format("当前版本: v%s", VERSION),
             enabled_func = function() return false end,
-        },
-        {
-            text_func = function()
-                local u = cfg.update_url
-                return "更新地址: " .. ((u and u ~= "") and u or "(未设置)")
-            end,
-            keep_menu_open = true,
-            callback = function(tm)
-                askText("更新地址(GitHub 上本文件的链接,blob 或 raw 均可)", cfg.update_url or "", function(v)
-                    cfg.update_url = v:gsub("^%s+", ""):gsub("%s+$", "")
-                    self:save()
-                    tm:updateItems()
-                end)
-            end,
         },
         {
             text = "检查更新", keep_menu_open = true,
