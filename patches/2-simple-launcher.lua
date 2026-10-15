@@ -826,7 +826,7 @@ L:registerModule{
     defaults = {
         source = "recent", count = 6, skip_current = false,
         center_height = 200, side_percent = 70,
-        show_label = true, label = "最近阅读",
+        show_label = false, label = "最近阅读",
         show_title = true, title_size = 20, show_progress = true,
         show_indicator = true, indicator_dots = 5, auto_seconds = 0,
     },
