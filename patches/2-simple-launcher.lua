@@ -21,7 +21,7 @@
 -- AI-assisted programming
 --
 -- patch: 2-simple-launcher.lua
--- Version: v1.1.2
+-- Version: v1.2.0
 -- This file is to provide a simple launcher for koreader.
 -- All modules and functions are from koreader, no complex functions.
 -- No refresh in the background, could be suitable for colorsoft.
@@ -33,6 +33,11 @@
     安装:  放进  koreader/patches/  ,重启 KOReader。
     入口:  文件浏览器 → 顶部菜单 → 工具(More tools) → "简易桌面"
            或在 手势 / Profiles 里绑定动作 "显示简易桌面"。
+
+    1.2.0 变化
+      * 在线更新后是否备份原文件(.bak)由用户决定: 在线更新菜单中可开关 (默认备份)
+      * 代码优化: 合并重复代码 (书籍行、列表编辑菜单、提示消息), 书籍信息缓存, 移除无用依赖与函数
+      * 检查更新时附带时间戳以绕过 GitHub raw 的 CDN 缓存; 线上版本号优先读取 VERSION 常量
 
     1.1.2 变化
       * 中文名定为 "简易桌面" (界面中的名称、菜单、手势动作均使用中文名)
@@ -134,7 +139,6 @@ local ReadHistory = require("readhistory")
 local ReaderUI = require("apps/reader/readerui")
 local RenderImage = require("ui/renderimage")
 local RightContainer = require("ui/widget/container/rightcontainer")
-local Size = require("ui/size")
 local SpinWidget = require("ui/widget/spinwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
@@ -180,7 +184,7 @@ local L = { modules = {}, module_ids = {}, instance = nil, dispatching = false }
 package.loaded["simple_launcher"] = L
 package.loaded["launcher_homescreen"] = L -- 旧名称别名, 兼容已有的自定义模块
 
-local VERSION = "1.1.2" -- LAUNCHER_VERSION: 1.1.2   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
+local VERSION = "1.2.0" -- LAUNCHER_VERSION: 1.2.0   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
 L.VERSION = VERSION
 
 -- 更新地址: 写死在代码里, 用户界面不提供修改 (如需更换仓库, 直接改这一行)
@@ -188,6 +192,10 @@ local UPDATE_URL = "https://raw.githubusercontent.com/YunshuangXiao/KOReader/ref
 
 local function scale(n)
     return Screen:scaleBySize(n)
+end
+
+local function toast(text, timeout)
+    UIManager:show(InfoMessage:new{ text = text, timeout = timeout or 3 })
 end
 
 local IMAGE_EXT = { png = true, jpg = true, jpeg = true, webp = true, bmp = true, gif = true, tif = true, tiff = true }
@@ -285,6 +293,7 @@ local function defaultConfig()
         enabled = true,
         auto_show = true,          -- 作为文件浏览器的初始界面: 启动 / 退出阅读后直接进入启动器
         home_to_launcher = true,   -- 在文件浏览器点 Home 时进入启动器
+        backup_on_update = true,   -- 在线更新时是否把原文件备份为 .bak (用户可在 "在线更新" 菜单中切换)
         wallpaper = "",            -- 文件 或 文件夹(随机)
         wallpaper_mode = "cover",  -- cover | fit | stretch
         wallpaper_tone = 0,        -- 壁纸深浅: -100(最暗) ~ 100(最浅), 0=原图
@@ -346,7 +355,7 @@ end
 
 function L:entryTitle(entry)
     local spec = self.modules[entry.id]
-    if not spec then return entry.id .. " " .. "(缺失)" end
+    if not spec then return entry.id .. " (缺失)" end
     local total, idx = 0, 0
     for ii, e in ipairs(self.cfg.modules) do
         if e.id == entry.id then
@@ -463,10 +472,13 @@ function L:getCover(file)
     return bb
 end
 
+--- 书名 / 作者 / 阅读进度 (每次进入启动器期间缓存, 翻页重绘时不再重复读取 sidecar)
 function L:getBookMeta(file)
+    self._meta = self._meta or {}
+    local cached = self._meta[file]
+    if cached then return cached end
     local _dir, name = util.splitFilePathName(file)
-    local title = util.splitFileNameSuffix(name)
-    local meta = { title = title, author = "", percent = 0 }
+    local meta = { title = util.splitFileNameSuffix(name), author = "", percent = 0 }
     local ok, ds = pcall(function() return DocSettings:open(file) end)
     if ok and ds then
         local props = ds:readSetting("doc_props")
@@ -477,6 +489,7 @@ function L:getBookMeta(file)
         meta.percent = ds:readSetting("percent_finished") or 0
         pcall(ds.close, ds)
     end
+    self._meta[file] = meta
     return meta
 end
 
@@ -516,7 +529,7 @@ function L:getFavorites(n)
     return out
 end
 
---- 封面 widget (无边框); 没有封面时用浅灰色块 + 首字母占位
+--- 封面 widget (无边框); 没有封面时只显示书名首字占位
 function L:makeCover(file, height, max_w, font_fn)
     local bb = self:getCover(file)
     local w, h
@@ -554,7 +567,7 @@ function L:bookCell(ctx, file, cell_w, o)
     return tappable(cell, function() self:openBook(file) end)
 end
 
---- 一行书籍 (slots = 一行最多几本, 保证每页大小一致)
+--- 一行书籍 (slots = 一行最多几本, 保证大小一致); 整行按模块的 "对齐" 放置
 function L:bookRow(ctx, files, o, total_w, slots)
     local gap = ctx.px(12)
     local cell_w = math.floor((total_w - (slots - 1) * gap) / slots)
@@ -563,7 +576,7 @@ function L:bookRow(ctx, files, o, total_w, slots)
         row[#row + 1] = self:bookCell(ctx, file, cell_w, o)
         if ii < #files then row[#row + 1] = HorizontalSpan:new{ width = gap } end
     end
-    return CenterContainer:new{ dimen = Geom:new{ w = total_w, h = row:getSize().h }, row }
+    return alignBox(ctx.opts.align, total_w, row:getSize().h, row)
 end
 
 function L:state(entry)
@@ -619,7 +632,7 @@ function L:runAction(entry)
         return
     end
     if not entry.settings or next(entry.settings) == nil then
-        UIManager:show(InfoMessage:new{ text = "这个快捷指令还没有设置动作。", timeout = 3 })
+        toast("这个快捷指令还没有设置动作。")
         return
     end
     self.dispatching = true
@@ -627,7 +640,7 @@ function L:runAction(entry)
     self.dispatching = false
     if not ok then
         logger.warn("launcher: action failed", err)
-        UIManager:show(InfoMessage:new{ text = "动作执行失败:" .. tostring(err), timeout = 4 })
+        toast("动作执行失败:" .. tostring(err), 4)
     end
 end
 
@@ -800,22 +813,7 @@ L:registerModule{
         local o = ctx.opts
         local files = L:getRecent(math.min(o.count, 8), o.skip_current and 1 or 0)
         if #files == 0 then return nil end
-        local gap = ctx.px(12)
-        local cell_w = math.floor((ctx.width - (#files - 1) * gap) / #files)
-        local row = HorizontalGroup:new{ align = "top" }
-        for ii, file in ipairs(files) do
-            local cover = L:makeCover(file, ctx.px(o.cover_height), cell_w, ctx.font)
-            local col = VerticalGroup:new{ align = "center", cover }
-            if o.show_title then
-                local meta = L:getBookMeta(file)
-                col[#col + 1] = VerticalSpan:new{ width = ctx.px(5) }
-                col[#col + 1] = TextWidget:new{ text = meta.title, face = ctx.font("cfont", o.title_size), max_width = cell_w }
-            end
-            local cell = CenterContainer:new{ dimen = Geom:new{ w = cell_w, h = col:getSize().h }, col }
-            row[#row + 1] = tappable(cell, function() L:openBook(file) end)
-            if ii < #files then row[#row + 1] = HorizontalSpan:new{ width = gap } end
-        end
-        return ctx.center(row)
+        return L:bookRow(ctx, files, o, ctx.width, #files)
     end,
 }
 
@@ -1315,6 +1313,7 @@ function L:show(force)
     if not FileManager.instance then return end
     self:close()
     self._state = nil -- 轮播等模块的状态复位: 每次进入都默认聚焦第 1 本 (当前阅读) 在中间
+    self._meta = nil  -- 书籍信息缓存复位: 读完书回来时进度会刷新
     self.instance = LauncherWidget:new{}
     UIManager:show(self.instance, "full")
 end
@@ -1372,6 +1371,24 @@ local function removeFromList(list, item)
     for ii, v in ipairs(list) do
         if v == item then table.remove(list, ii) return end
     end
+end
+
+--- 列表项的 "上移 / 下移 / 删除" 三个菜单项 (模块列表与按钮列表共用)
+--- 操作后保存、刷新上级列表, 并回到上级菜单 (菜单保持打开)
+local function reorderItems(items_list, item, refill, delete_text)
+    local function act(fn)
+        return function(tm)
+            fn()
+            L:save()
+            refill()
+            tm:backToUpperMenu()
+        end
+    end
+    return {
+        { text = "上移", keep_menu_open = true, callback = act(function() moveInList(items_list, item, -1) end) },
+        { text = "下移", keep_menu_open = true, callback = act(function() moveInList(items_list, item, 1) end) },
+        { text = delete_text, keep_menu_open = true, callback = act(function() removeFromList(items_list, item) end) },
+    }
 end
 
 local function radioItems(options, get, set)
@@ -1450,34 +1467,10 @@ function L:moduleMenu(entry, list)
             checked_func = function() return entry.enabled == true end,
             callback = function() entry.enabled = not entry.enabled self:save() end,
         },
-        {
-            text = "上移", keep_menu_open = true,
-            callback = function(tm)
-                moveInList(self.cfg.modules, entry, -1)
-                self:save()
-                self:fillModuleList(list)
-                tm:backToUpperMenu()
-            end,
-        },
-        {
-            text = "下移", keep_menu_open = true,
-            callback = function(tm)
-                moveInList(self.cfg.modules, entry, 1)
-                self:save()
-                self:fillModuleList(list)
-                tm:backToUpperMenu()
-            end,
-        },
-        {
-            text = "删除此模块", keep_menu_open = true, separator = true,
-            callback = function(tm)
-                removeFromList(self.cfg.modules, entry)
-                self:save()
-                self:fillModuleList(list)
-                tm:backToUpperMenu()
-            end,
-        },
     }
+    local edit = reorderItems(self.cfg.modules, entry, function() self:fillModuleList(list) end, "删除此模块")
+    edit[#edit].separator = true
+    for ii, it in ipairs(edit) do items[#items + 1] = it end
     if not spec then return items end
     items[#items + 1] = {
         text = "大小与位置",
@@ -1566,9 +1559,9 @@ function L:actionMenu(action, list, owner)
             tm:updateItems()
         end
     end
-    return {
+    local items = {
         {
-            text_func = function() return "标签" .. ": " .. self:actionLabel(action) end,
+            text_func = function() return "标签: " .. self:actionLabel(action) end,
             keep_menu_open = true,
             callback = function(tm)
                 askText("标签", action.label or "", function(v)
@@ -1581,12 +1574,12 @@ function L:actionMenu(action, list, owner)
         {
             text_func = function()
                 local s = self:actionSummary(action)
-                return "动作" .. ": " .. (s ~= "" and s or "(无)")
+                return "动作: " .. (s ~= "" and s or "(无)")
             end,
             sub_item_table_func = function() return self:actionPicker(action) end,
         },
         {
-            text_func = function() return "图标名(可选)" .. ": " .. (action.icon or "") end,
+            text_func = function() return "图标名(可选): " .. (action.icon or "") end,
             keep_menu_open = true,
             callback = function(tm)
                 askText("图标名(可选,如 home、favorites、history)", action.icon or "", function(v)
@@ -1598,34 +1591,10 @@ function L:actionMenu(action, list, owner)
         },
         { text = "使用内置:打开文件浏览器", keep_menu_open = true, callback = setBuiltin("files") },
         { text = "使用内置:打开顶部菜单", keep_menu_open = true, callback = setBuiltin("menu"), separator = true },
-        {
-            text = "上移", keep_menu_open = true,
-            callback = function(tm)
-                moveInList(owner.actions, action, -1)
-                self:save()
-                self:fillActionList(list, owner)
-                tm:backToUpperMenu()
-            end,
-        },
-        {
-            text = "下移", keep_menu_open = true,
-            callback = function(tm)
-                moveInList(owner.actions, action, 1)
-                self:save()
-                self:fillActionList(list, owner)
-                tm:backToUpperMenu()
-            end,
-        },
-        {
-            text = "删除", keep_menu_open = true,
-            callback = function(tm)
-                removeFromList(owner.actions, action)
-                self:save()
-                self:fillActionList(list, owner)
-                tm:backToUpperMenu()
-            end,
-        },
     }
+    local edit = reorderItems(owner.actions, action, function() self:fillActionList(list, owner) end, "删除")
+    for ii, it in ipairs(edit) do items[#items + 1] = it end
+    return items
 end
 
 function L:fillActionList(list, owner)
@@ -1663,7 +1632,7 @@ function L:wallpaperMenu()
         {
             text_func = function()
                 local p = cfg.wallpaper
-                return "当前" .. ": " .. ((p and p ~= "") and p or "(无)")
+                return "当前: " .. ((p and p ~= "") and p or "(无)")
             end,
             enabled_func = function() return false end,
         },
@@ -1810,7 +1779,7 @@ function L:addToMainMenu(menu_items)
 end
 
 -- ---------------------------------------------------------------------------
--- 在线更新 (从 GitHub 上的具体文件下载)
+-- 在线更新 (从 GitHub 上的具体文件下载; 仅手动触发)
 -- ---------------------------------------------------------------------------
 
 --- 比较 x.x.x 版本号: a>b 返回 1, a<b 返回 -1, 相等返回 0 (缺省段按 0 处理)
@@ -1826,18 +1795,6 @@ local function cmpVersion(a, b)
         if x ~= y then return x > y and 1 or -1 end
     end
     return 0
-end
-
---- 把 github.com/.../blob/... 之类的链接转成 raw 直链
-local function rawUrl(u)
-    if not u then return nil end
-    u = u:gsub("^%s+", ""):gsub("%s+$", "")
-    if u == "" then return nil end
-    local user, repo, rest = u:match("^https?://github%.com/([^/]+)/([^/]+)/blob/(.+)$")
-    if not user then user, repo, rest = u:match("^https?://github%.com/([^/]+)/([^/]+)/raw/(.+)$") end
-    if user then u = "https://raw.githubusercontent.com/" .. user .. "/" .. repo .. "/" .. rest end
-    u = u:gsub("%?raw=true$", "")
-    return u
 end
 
 local function httpGet(url)
@@ -1875,87 +1832,85 @@ end
 function L:selfPath()
     local src = SELF_SOURCE:gsub("^@", "")
     if src:match("%.lua$") and mode(src) == "file" then return src end
-    local fallback = DataStorage:getDataDir() .. "/patches/2-simple-launcher.lua"
-    return fallback
+    return DataStorage:getDataDir() .. "/patches/2-simple-launcher.lua"
 end
 
+--- 覆盖当前补丁文件; 是否先备份为 .bak 由用户在菜单中决定
 function L:installUpdate(body, remote_v)
     local path = self:selfPath()
-    local old = readFile(path)
-    if old then writeFile(path .. ".bak", old) end -- 备份 (.bak 不会被 KOReader 当作补丁加载)
+    if self.cfg.backup_on_update then
+        local old = readFile(path)
+        if old then writeFile(path .. ".bak", old) end -- .bak 不会被 KOReader 当作补丁加载
+    end
+    -- 先写临时文件再改名: 写入失败时原文件不受影响
     local tmp = path .. ".new"
     local ok, err = writeFile(tmp, body)
     if ok then
         ok, err = os.rename(tmp, path)
     end
     if not ok then
-        UIManager:show(InfoMessage:new{ text = "更新失败:" .. tostring(err), timeout = 5 })
+        toast("更新失败:" .. tostring(err), 5)
         return
     end
     local msg = string.format("已更新到 v%s,需要重启 KOReader 才能生效。", tostring(remote_v or "?"))
     if UIManager.askForRestart then
         UIManager:askForRestart(msg)
     else
-        UIManager:show(InfoMessage:new{ text = msg .. "\n请手动重启。" })
+        toast(msg .. "\n请手动重启。", 5)
     end
 end
 
---- manual: 手动检查 (会提示 "已是最新" 与错误); force: 版本相同也重新下载
-function L:checkUpdate(manual, force)
-    local url = rawUrl(UPDATE_URL)
-    if not url then
-        if manual then UIManager:show(InfoMessage:new{ text = "更新地址无效。", timeout = 3 }) end
-        return
-    end
+--- force: 版本相同也重新下载并覆盖
+function L:checkUpdate(force)
     local function run()
-        local info
-        if manual then
-            info = InfoMessage:new{ text = "正在检查更新…" }
-            UIManager:show(info)
-            UIManager:forceRePaint()
-        end
-        local body, err = httpGet(url)
-        if info then UIManager:close(info) end
+        local info = InfoMessage:new{ text = "正在检查更新…" }
+        UIManager:show(info)
+        UIManager:forceRePaint()
+        -- 附带时间戳, 避免 GitHub raw 的 CDN 缓存返回旧文件
+        local body, err = httpGet(UPDATE_URL .. "?t=" .. os.time())
+        UIManager:close(info)
         if not body then
-            if manual then UIManager:show(InfoMessage:new{ text = "下载失败:" .. tostring(err), timeout = 5 }) end
+            toast("下载失败:" .. tostring(err), 5)
             return
         end
-        local chunk = (loadstring or load)(body)
-        if not chunk or not body:find('package.loaded["simple_launcher"]', 1, true) then
-            if manual then UIManager:show(InfoMessage:new{ text = "下载的内容不是有效的简易桌面补丁,已取消更新。", timeout = 5 }) end
+        if not (loadstring or load)(body) or not body:find('package.loaded["simple_launcher"]', 1, true) then
+            toast("下载的内容不是有效的简易桌面补丁,已取消更新。", 5)
             return
         end
-        local remote_v = body:match("LAUNCHER_VERSION:%s*(%d+[%.%d]*)")
+        -- 线上版本号: 优先读代码里的 VERSION 常量, 其次读 LAUNCHER_VERSION 标记
+        local remote_v = body:match('local VERSION = "(%d+[%.%d]*)"')
+            or body:match("LAUNCHER_VERSION:%s*(%d+[%.%d]*)")
         if not force and (not remote_v or cmpVersion(remote_v, VERSION) <= 0) then
-            if manual then
-                UIManager:show(InfoMessage:new{ text = string.format("已是最新版本(v%s)。", VERSION), timeout = 3 })
-            end
+            toast(string.format("已是最新版本(本地 v%s,线上 v%s)。", VERSION, tostring(remote_v or "?")))
             return
         end
         UIManager:show(ConfirmBox:new{
-            text = string.format("发现新版本 v%s(当前 v%s),是否更新?\n旧文件会备份为 .bak。", tostring(remote_v or "?"), VERSION),
+            text = string.format("发现新版本 v%s(当前 v%s),是否更新?\n%s",
+                tostring(remote_v or "?"), VERSION,
+                self.cfg.backup_on_update and "旧文件会备份为 .bak。" or "不会备份旧文件。"),
             ok_text = "更新", cancel_text = "取消",
             ok_callback = function() self:installUpdate(body, remote_v) end,
         })
     end
-    -- 仅手动触发: 未联网时 KOReader 会先提示连接 Wi-Fi
+    -- 未联网时 KOReader 会先提示连接 Wi-Fi
     require("ui/network/manager"):runWhenOnline(run)
 end
 
 function L:updateMenu()
+    local cfg = self.cfg
     return {
         {
             text = string.format("当前版本: v%s", VERSION),
             enabled_func = function() return false end,
         },
         {
-            text = "检查更新", keep_menu_open = true,
-            callback = function() self:checkUpdate(true, false) end,
+            text = "更新时备份原文件(.bak)", keep_menu_open = true,
+            checked_func = function() return cfg.backup_on_update end,
+            callback = function() cfg.backup_on_update = not cfg.backup_on_update self:save() end,
+            separator = true,
         },
-        {
-            text = "强制重新下载并覆盖", keep_menu_open = true,
-            callback = function() self:checkUpdate(true, true) end,
-        },
+        { text = "检查更新", keep_menu_open = true, callback = function() self:checkUpdate(false) end },
+        { text = "强制重新下载并覆盖", keep_menu_open = true, callback = function() self:checkUpdate(true) end },
     }
 end
 
@@ -1986,7 +1941,6 @@ function L:onFileManagerShown()
     if self.cfg.enabled and self.cfg.auto_show then
         self:show() -- 同步显示: 启动时不会先闪出文件列表
     end
-
 end
 
 local orig_showFiles = FileManager.showFiles
@@ -2050,6 +2004,7 @@ if type(orig_setupLayout) == "function" then
     end
 end
 
+-- 打开书之前先关闭启动器, 避免它残留在阅读器下面
 local orig_showReader = ReaderUI.showReader
 if orig_showReader then
     ReaderUI.showReader = function(reader_class, ...)
