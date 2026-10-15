@@ -274,7 +274,7 @@ local function defaultConfig()
     return {
         enabled = true,
         auto_show = true,          -- 作为文件浏览器的初始界面: 启动 / 退出阅读后直接进入启动器
-        update_url = "",           -- GitHub 上本文件的链接 (blob 或 raw 均可)
+        update_url = "https://raw.githubusercontent.com/YunshuangXiao/KOReader/refs/heads/main/patches/2-simple-launcher.lua",           -- GitHub 上本文件的链接 (blob 或 raw 均可)
         home_to_launcher = true,   -- 在文件浏览器点 Home 时进入启动器
         wallpaper = "",            -- 文件 或 文件夹(随机)
         wallpaper_mode = "cover",  -- cover | fit | stretch
