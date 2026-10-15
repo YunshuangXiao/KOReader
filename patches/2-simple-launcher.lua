@@ -21,18 +21,22 @@
 -- AI-assisted programming
 --
 -- patch: 2-simple-launcher.lua
--- Version: v0.1.0.261015
+-- Version: v1.1.2
 -- This file is to provide a simple launcher for koreader.
 -- All modules and functions are from koreader, no complex functions.
 -- No refresh in the background, could be suitable for colorsoft.
 --
 -- ###########################################################################
 --[[
-    2-simple-launcher.lua  ——  Simple Launcher: KOReader 桌面启动器补丁 (参考 SimpleUI 的思路)
+    2-simple-launcher.lua  ——  简易桌面 (Simple Launcher): KOReader 桌面补丁 (参考 SimpleUI 的思路)
 
     安装:  放进  koreader/patches/  ,重启 KOReader。
-    入口:  文件浏览器 → 顶部菜单 → 工具(More tools) → "Simple Launcher"
-           或在 手势 / Profiles 里绑定动作 "Show launcher"。
+    入口:  文件浏览器 → 顶部菜单 → 工具(More tools) → "简易桌面"
+           或在 手势 / Profiles 里绑定动作 "显示简易桌面"。
+
+    1.1.2 变化
+      * 中文名定为 "简易桌面" (界面中的名称、菜单、手势动作均使用中文名)
+      * 文件头 Version 与代码中的 VERSION 统一为 x.x.x 格式
 
     1.1.1 变化
       * 更新地址写在代码里 (UPDATE_URL), 菜单中不再提供输入框
@@ -176,7 +180,7 @@ local L = { modules = {}, module_ids = {}, instance = nil, dispatching = false }
 package.loaded["simple_launcher"] = L
 package.loaded["launcher_homescreen"] = L -- 旧名称别名, 兼容已有的自定义模块
 
-local VERSION = "1.1.1" -- LAUNCHER_VERSION: 1.1.1   (在线更新用它比较新旧; 发布新版时两处版本号保持一致, 格式 x.x.x)
+local VERSION = "1.1.2" -- LAUNCHER_VERSION: 1.1.2   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
 L.VERSION = VERSION
 
 -- 更新地址: 写死在代码里, 用户界面不提供修改 (如需更换仓库, 直接改这一行)
@@ -1767,7 +1771,7 @@ function L:buildMenu()
     self:fillModuleList(module_list)
     return {
         {
-            text = "立即显示 Simple Launcher",
+            text = "立即显示简易桌面",
             callback = function(tm)
                 if tm and tm.closeMenu then tm:closeMenu() end
                 self:show(true)
@@ -1775,17 +1779,17 @@ function L:buildMenu()
             separator = true,
         },
         {
-            text = "启用启动器", keep_menu_open = true,
+            text = "启用简易桌面", keep_menu_open = true,
             checked_func = function() return cfg.enabled end,
             callback = function() cfg.enabled = not cfg.enabled self:save() end,
         },
         {
-            text = "将启动器设为文件浏览器的初始界面", keep_menu_open = true,
+            text = "将简易桌面设为文件浏览器的初始界面", keep_menu_open = true,
             checked_func = function() return cfg.auto_show end,
             callback = function() cfg.auto_show = not cfg.auto_show self:save() end,
         },
         {
-            text = "文件浏览器的 Home 键进入启动器", keep_menu_open = true,
+            text = "文件浏览器的 Home 键进入简易桌面", keep_menu_open = true,
             checked_func = function() return cfg.home_to_launcher end,
             callback = function() cfg.home_to_launcher = not cfg.home_to_launcher self:save() end,
             separator = true,
@@ -1799,7 +1803,7 @@ end
 
 function L:addToMainMenu(menu_items)
     menu_items.launcher_homescreen = {
-        text = "Simple Launcher",
+        text = "简易桌面",
         sorting_hint = "more_tools",
         sub_item_table_func = function() return L:buildMenu() end,
     }
@@ -1918,7 +1922,7 @@ function L:checkUpdate(manual, force)
         end
         local chunk = (loadstring or load)(body)
         if not chunk or not body:find('package.loaded["simple_launcher"]', 1, true) then
-            if manual then UIManager:show(InfoMessage:new{ text = "下载的内容不是有效的 Simple Launcher 补丁,已取消更新。", timeout = 5 }) end
+            if manual then UIManager:show(InfoMessage:new{ text = "下载的内容不是有效的简易桌面补丁,已取消更新。", timeout = 5 }) end
             return
         end
         local remote_v = body:match("LAUNCHER_VERSION:%s*(%d+[%.%d]*)")
@@ -1963,7 +1967,7 @@ L:load()
 loadUserModules()
 
 pcall(Dispatcher.registerAction, Dispatcher, "launcher_homescreen_show", {
-    category = "none", event = "ShowLauncherHomescreen", title = "显示 Simple Launcher", general = true,
+    category = "none", event = "ShowLauncherHomescreen", title = "显示简易桌面", general = true,
 })
 function FileManager:onShowLauncherHomescreen()
     L:show(true)
