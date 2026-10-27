@@ -21,7 +21,7 @@
 -- AI-assisted programming
 --
 -- patch: 2-simple-launcher.lua
--- Version: v1.2.0
+-- Version: v1.2.1
 -- This file is to provide a simple launcher for koreader.
 -- All modules and functions are from koreader, no complex functions.
 -- No refresh in the background, could be suitable for colorsoft.
@@ -33,6 +33,9 @@
     安装:  放进  koreader/patches/  ,重启 KOReader。
     入口:  文件浏览器 → 顶部菜单 → 工具(More tools) → "简易桌面"
            或在 手势 / Profiles 里绑定动作 "显示简易桌面"。
+
+    1.2.1 变化
+      * 修复 桌面模式下无法退出 KOReader 的 bug (退出 / 关闭文件浏览器前先关闭桌面)
 
     1.2.0 变化
       * 在线更新后是否备份原文件(.bak)由用户决定: 在线更新菜单中可开关 (默认备份)
@@ -184,7 +187,7 @@ local L = { modules = {}, module_ids = {}, instance = nil, dispatching = false }
 package.loaded["simple_launcher"] = L
 package.loaded["launcher_homescreen"] = L -- 旧名称别名, 兼容已有的自定义模块
 
-local VERSION = "1.2.0" -- LAUNCHER_VERSION: 1.2.0   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
+local VERSION = "1.2.1" -- LAUNCHER_VERSION: 1.2.1   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
 L.VERSION = VERSION
 
 -- 更新地址: 写死在代码里, 用户界面不提供修改 (如需更换仓库, 直接改这一行)
@@ -2010,5 +2013,22 @@ if orig_showReader then
     ReaderUI.showReader = function(reader_class, ...)
         L:close()
         return orig_showReader(reader_class, ...)
+    end
+end
+
+-- 退出 / 关闭文件浏览器之前先关闭桌面, 否则窗口栈不为空, KOReader 无法退出
+local orig_fm_onClose = FileManager.onClose
+if type(orig_fm_onClose) == "function" then
+    FileManager.onClose = function(fm_self, ...)
+        L:close()
+        return orig_fm_onClose(fm_self, ...)
+    end
+end
+
+local orig_exitOrRestart = FileManager.exitOrRestart
+if type(orig_exitOrRestart) == "function" then
+    FileManager.exitOrRestart = function(fm_self, ...)
+        L:close()
+        return orig_exitOrRestart(fm_self, ...)
     end
 end
