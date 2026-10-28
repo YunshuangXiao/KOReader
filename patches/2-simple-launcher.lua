@@ -21,7 +21,7 @@
 -- AI-assisted programming
 --
 -- patch: 2-simple-launcher.lua
--- Version: v1.2.1
+-- Version: v1.2.2
 -- This file is to provide a simple launcher for koreader.
 -- All modules and functions are from koreader, no complex functions.
 -- No refresh in the background, could be suitable for colorsoft.
@@ -32,7 +32,11 @@
 
     安装:  放进  koreader/patches/  ,重启 KOReader。
     入口:  文件浏览器 → 顶部菜单 → 工具(More tools) → "简易桌面"
-           或在 手势 / Profiles 里绑定动作 "显示简易桌面"。
+           或在 手势 / Profiles 里绑定动作 "显示简易桌面" / "刷新简易桌面"。
+
+    1.2.2 变化
+      * 新增 手势动作 "刷新简易桌面" 与菜单项 "立即刷新简易桌面": 重新读取书籍信息 / 进度,
+        重新处理壁纸 (文件夹壁纸会重新随机一张) 并重建全部模块
 
     1.2.1 变化
       * 修复 桌面模式下无法退出 KOReader 的 bug (退出 / 关闭文件浏览器前先关闭桌面)
@@ -187,7 +191,7 @@ local L = { modules = {}, module_ids = {}, instance = nil, dispatching = false }
 package.loaded["simple_launcher"] = L
 package.loaded["launcher_homescreen"] = L -- 旧名称别名, 兼容已有的自定义模块
 
-local VERSION = "1.2.1" -- LAUNCHER_VERSION: 1.2.1   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
+local VERSION = "1.2.2" -- LAUNCHER_VERSION: 1.2.2   (在线更新用它比较新旧; 发布新版时,此处与文件头 "Version: vx.x.x" 保持一致, 格式 x.x.x)
 L.VERSION = VERSION
 
 -- 更新地址: 写死在代码里, 用户界面不提供修改 (如需更换仓库, 直接改这一行)
@@ -1301,6 +1305,12 @@ function LauncherWidget:onShowLauncherHomescreen()
     return true
 end
 
+-- 桌面正在显示时收到 "刷新简易桌面" 事件: 立即刷新整个桌面
+function LauncherWidget:onRefreshLauncherHomescreen()
+    L:refreshNow()
+    return true
+end
+
 -- Dispatcher 执行快捷指令时发出的事件, 启动器没处理的转发给 FileManager
 function LauncherWidget:handleEvent(event)
     if InputContainer.handleEvent(self, event) then return true end
@@ -1309,6 +1319,19 @@ function LauncherWidget:handleEvent(event)
         if fm then return fm:handleEvent(event) end
     end
     return false
+end
+
+--- 立即刷新整个桌面: 清书籍信息缓存 → 重建壁纸层与全部模块
+--- 桌面没显示时直接显示出来 (显示时本来就会重新读取一切)
+function L:refreshNow()
+    if not self.instance then
+        self:show(true)
+        return
+    end
+    self._meta = nil -- 书名 / 作者 / 阅读进度重新读取
+    local w = self.instance
+    w:rebuild(true)  -- true: 连壁纸也重新处理 (文件夹壁纸会重新随机)
+    UIManager:setDirty(w, "ui")
 end
 
 function L:show(force)
@@ -1748,6 +1771,13 @@ function L:buildMenu()
                 if tm and tm.closeMenu then tm:closeMenu() end
                 self:show(true)
             end,
+        },
+        {
+            text = "立即刷新简易桌面",
+            callback = function(tm)
+                if tm and tm.closeMenu then tm:closeMenu() end
+                self:refreshNow()
+            end,
             separator = true,
         },
         {
@@ -1927,8 +1957,15 @@ loadUserModules()
 pcall(Dispatcher.registerAction, Dispatcher, "launcher_homescreen_show", {
     category = "none", event = "ShowLauncherHomescreen", title = "显示简易桌面", general = true,
 })
+pcall(Dispatcher.registerAction, Dispatcher, "launcher_homescreen_refresh", {
+    category = "none", event = "RefreshLauncherHomescreen", title = "刷新简易桌面", general = true,
+})
 function FileManager:onShowLauncherHomescreen()
     L:show(true)
+    return true
+end
+function FileManager:onRefreshLauncherHomescreen()
+    L:refreshNow()
     return true
 end
 
